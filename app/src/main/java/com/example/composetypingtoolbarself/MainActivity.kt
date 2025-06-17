@@ -1,9 +1,11 @@
 package com.example.composetypingtoolbarself
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -32,6 +34,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,6 +44,7 @@ import androidx.compose.ui.platform.isDebugInspectorInfoEnabled
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
@@ -61,14 +65,33 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+data class AnnotationStyle(
+    val text: Char,
+    val style: SpanStyle
+)
+
 @Composable
 fun TypingToolBar() {
     var text by remember { mutableStateOf(TextFieldValue(AnnotatedString(""))) }
+    var textList = remember { mutableStateListOf<AnnotationStyle>() }
 
     var isUnderline by remember { mutableStateOf(false) }
     var isBold by remember { mutableStateOf(false) }
     var isH1 by remember { mutableStateOf(false) }
     var isH2 by remember { mutableStateOf(false) }
+
+    fun getStyle(): SpanStyle {
+        return SpanStyle(
+            fontWeight = if (isBold) FontWeight.Bold else null,
+            textDecoration = if (isUnderline) TextDecoration.Underline else null,
+            fontSize = when {
+                isH1 -> 30.sp
+                isH2 -> 23.sp
+                else -> 18.sp
+            }
+        )
+
+    }
 
     Column(
         modifier = Modifier
@@ -87,38 +110,41 @@ fun TypingToolBar() {
                     .fillMaxSize()
                     .weight(1f),
                 onValueChange = { newValue ->
-                    val selection = newValue.selection
+                    val cursor = newValue.selection
                     val newText = newValue.annotatedString
                     val oldText = text.annotatedString
 
-                    val builder = AnnotatedString.Builder(newText)
-
-                    oldText.spanStyles.forEach { range ->
-                        val start = range.start
-                        val end = range.end
-
-                        if (start < newText.length && end <= newText.length) builder.addStyle(
-                            range.item,
-                            start,
-                            end
-                        )
+                    if (newText.length > oldText.length && cursor.start == cursor.end) {
+                        if (cursor.start < newText.length) {
+                            textList.add(
+                                cursor.start - 1,
+                                AnnotationStyle(newText.text[cursor.start - 1], getStyle())
+                            )
+                        } else {
+                            textList.add(
+                                AnnotationStyle(
+                                    newText.text.last(),
+                                    getStyle()
+                                )
+                            )
+                        }
                     }
 
-                    if (newText.length > oldText.length) builder.addStyle(
-                        SpanStyle(
-                            fontWeight = if (isBold) FontWeight.Bold else null,
-                            textDecoration = if (isUnderline) TextDecoration.Underline else null,
-                            fontSize = if (isH1) 30.sp else 18.sp
-                        ),
-                        selection.start - (newText.length - oldText.length),
-                        selection.end
-                    )
+                    if (newText.length < oldText.length && cursor.start == cursor.end) {
+                        textList.removeAt(cursor.start)
+                    }
 
-                    text = newValue.copy(annotatedString = builder.toAnnotatedString())
+                    text = newValue.copy(annotatedString = buildAnnotatedString {
+                        textList.forEachIndexed { index, item ->
+                            append(item.text)
+                            addStyle(item.style, index, index + 1)
+                        }
+                    })
                 })
             Card(
                 modifier = Modifier
                     .imePadding()
+                    .animateContentSize()
                     .fillMaxWidth(),
                 shape = RoundedCornerShape(topEnd = 10.dp, topStart = 10.dp)
             ) {
@@ -133,7 +159,7 @@ fun TypingToolBar() {
                         .padding(5.dp)
                 ) {
                     item {
-                        Row (verticalAlignment = Alignment.CenterVertically){
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             ToolKitButton(isBold, R.drawable.bold, label = null) {
                                 isBold = !isBold
                             }
@@ -142,9 +168,11 @@ fun TypingToolBar() {
                             }
                             ToolKitButton(isH1, icon = null, label = "H1") {
                                 isH1 = !isH1
+                                if (isH2) isH2 = false
                             }
                             ToolKitButton(isH2, icon = null, label = "H2") {
                                 isH2 = !isH2
+                                if (isH1) isH1 = false
                             }
                         }
                     }
